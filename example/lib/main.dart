@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
+import 'package:example/data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -44,27 +47,41 @@ class _MyHomePageState extends State<MyHomePage> {
   bool isChangeUI = false;
   bool _isTrendLine = false;
   bool _priceLeft = true;
-  VerticalTextAlignment _verticalTextAlignment = VerticalTextAlignment.left;
+  VerticalTextAlignment _verticalTextAlignment = VerticalTextAlignment.right;
 
   ChartStyle chartStyle = ChartStyle();
   ChartColors chartColors = ChartColors();
-
+  Timer? _timer;
+  bool _changeData = false;
   @override
   void initState() {
     super.initState();
-    getData('1day');
+
     rootBundle.loadString('assets/depth.json').then((result) {
       final parseJson = json.decode(result);
       final tick = parseJson['tick'] as Map<String, dynamic>;
       final List<DepthEntity> bids = (tick['bids'] as List<dynamic>)
-          .map<DepthEntity>(
-              (item) => DepthEntity(item[0] as double, item[1] as double))
+          .map<DepthEntity>((item) => DepthEntity(item[0] as double, item[1] as double))
           .toList();
       final List<DepthEntity> asks = (tick['asks'] as List<dynamic>)
-          .map<DepthEntity>(
-              (item) => DepthEntity(item[0] as double, item[1] as double))
+          .map<DepthEntity>((item) => DepthEntity(item[0] as double, item[1] as double))
           .toList();
       initDepth(bids, asks);
+    });
+
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+      _changeData = !_changeData;
+      getData('1day', _changeData);
     });
   }
 
@@ -153,25 +170,16 @@ class _MyHomePageState extends State<MyHomePage> {
         button("Line:MA", onPressed: () => _mainState = MainState.MA),
         button("Line:BOLL", onPressed: () => _mainState = MainState.BOLL),
         button("Hide Line", onPressed: () => _mainState = MainState.NONE),
-        button("Secondary Chart:MACD",
-            onPressed: () => _secondaryState = SecondaryState.MACD),
-        button("Secondary Chart:KDJ",
-            onPressed: () => _secondaryState = SecondaryState.KDJ),
-        button("Secondary Chart:RSI",
-            onPressed: () => _secondaryState = SecondaryState.RSI),
-        button("Secondary Chart:WR",
-            onPressed: () => _secondaryState = SecondaryState.WR),
-        button("Secondary Chart:CCI",
-            onPressed: () => _secondaryState = SecondaryState.CCI),
-        button("Secondary Chart:Hide",
-            onPressed: () => _secondaryState = SecondaryState.NONE),
-        button(_volHidden ? "Show Vol" : "Hide Vol",
-            onPressed: () => _volHidden = !_volHidden),
+        button("Secondary Chart:MACD", onPressed: () => _secondaryState = SecondaryState.MACD),
+        button("Secondary Chart:KDJ", onPressed: () => _secondaryState = SecondaryState.KDJ),
+        button("Secondary Chart:RSI", onPressed: () => _secondaryState = SecondaryState.RSI),
+        button("Secondary Chart:WR", onPressed: () => _secondaryState = SecondaryState.WR),
+        button("Secondary Chart:CCI", onPressed: () => _secondaryState = SecondaryState.CCI),
+        button("Secondary Chart:Hide", onPressed: () => _secondaryState = SecondaryState.NONE),
+        button(_volHidden ? "Show Vol" : "Hide Vol", onPressed: () => _volHidden = !_volHidden),
         button("Change Language", onPressed: () => isChinese = !isChinese),
-        button(_hideGrid ? "Show Grid" : "Hide Grid",
-            onPressed: () => _hideGrid = !_hideGrid),
-        button(_showNowPrice ? "Hide Now Price" : "Show Now Price",
-            onPressed: () => _showNowPrice = !_showNowPrice),
+        button(_hideGrid ? "Show Grid" : "Hide Grid", onPressed: () => _hideGrid = !_hideGrid),
+        button(_showNowPrice ? "Hide Now Price" : "Show Now Price", onPressed: () => _showNowPrice = !_showNowPrice),
         button("Customize UI", onPressed: () {
           setState(() {
             this.isChangeUI = !this.isChangeUI;
@@ -190,13 +198,13 @@ class _MyHomePageState extends State<MyHomePage> {
         }),
         button("Change PriceTextPaint",
             onPressed: () => setState(() {
-              _priceLeft = !_priceLeft;
-              if (_priceLeft) {
-                _verticalTextAlignment = VerticalTextAlignment.left;
-              } else {
-                _verticalTextAlignment = VerticalTextAlignment.right;
-              }
-            })),
+                  _priceLeft = !_priceLeft;
+                  if (_priceLeft) {
+                    _verticalTextAlignment = VerticalTextAlignment.left;
+                  } else {
+                    _verticalTextAlignment = VerticalTextAlignment.right;
+                  }
+                })),
       ],
     );
   }
@@ -222,12 +230,12 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  void getData(String period) {
+  void getData(String period, bool change) {
     /*
      * 可以翻墙使用方法1加载数据，不可以翻墙使用方法2加载数据，默认使用方法1加载最新数据
      */
-    final Future<String> future = getChatDataFromInternet(period);
-    //final Future<String> future = getChatDataFromJson();
+    // final Future<String> future = getChatDataFromInternet(period);
+    final Future<String> future = getChatDataFromJson(false);
     future.then((String result) {
       solveChatData(result);
     }).catchError((_) {
@@ -239,8 +247,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   //获取火币数据，需要翻墙
   Future<String> getChatDataFromInternet(String? period) async {
-    var url =
-        'https://api.huobi.br.com/market/history/kline?period=${period ?? '1day'}&size=300&symbol=btcusdt';
+    var url = 'https://api.huobi.br.com/market/history/kline?period=${period ?? '1day'}&size=300&symbol=btcusdt';
     late String result;
     final response = await http.get(Uri.parse(url));
     if (response.statusCode == 200) {
@@ -252,19 +259,21 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   // 如果你不能翻墙，可以使用这个方法加载数据
-  Future<String> getChatDataFromJson() async {
-    return rootBundle.loadString('assets/chatData.json');
+  Future<String> getChatDataFromJson(bool change) async {
+    return rootBundle.loadString('assets/${change ? "chatData" : "chatData2"}.json');
   }
 
   void solveChatData(String result) {
     final Map parseJson = json.decode(result) as Map<dynamic, dynamic>;
     final list = parseJson['data'] as List<dynamic>;
+    final list2 = kData['data'] as List<dynamic>;
     datas = list
         .map((item) => KLineEntity.fromJson(item as Map<String, dynamic>))
         .toList()
         .reversed
         .toList()
         .cast<KLineEntity>();
+    datas!.add(KLineEntity.fromJson(list2[Random().nextInt(list.length - 1)]));
     DataUtil.calculate(datas!);
     showLoading = false;
     setState(() {});
